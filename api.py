@@ -20,7 +20,7 @@ app = FastAPI()
 
 # Разрешаем запросы с твоего фронта
 origins = [
-    "https://cane4ic.github.io/royal_bet1/",   # твой GitHub Pages домен
+    "https://cane4ic.github.io",   # твой GitHub Pages домен
     # сюда потом добавишь домен, где будет настоящий фронт
 ]
 
@@ -72,4 +72,5 @@ async def get_balance(req: BalanceRequest):
     return {
         "balance": float(row["balance_usdt"])
     }
+
 
