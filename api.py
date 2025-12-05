@@ -74,3 +74,30 @@ async def get_balance(req: BalanceRequest):
     }
 
 
+class BalanceChangeRequest(BaseModel):
+    tg_id: int
+    delta: float   # на сколько изменить баланс (+выигрыш, -ставка)
+
+
+@app.post("/api/change-balance")
+async def change_balance(req: BalanceChangeRequest):
+    """
+    Изменяет баланс на delta и возвращает новый баланс.
+    """
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE users
+            SET balance_usdt = GREATEST(0, balance_usdt + $1)
+            WHERE tg_id = $2
+            RETURNING balance_usdt
+            """,
+            req.delta,
+            req.tg_id,
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"balance": float(row["balance_usdt"])}
+
