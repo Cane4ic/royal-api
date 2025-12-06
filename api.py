@@ -1,6 +1,7 @@
 import os
 import asyncpg
 import logging
+import pyotp
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -220,6 +221,94 @@ async def get_personal_data(req: PersonalDataGetRequest):
         "gender": row["gender"],
     }
 
+class TwoFAInitRequest(BaseModel):
+    tg_id: int
+
+class TwoFAVerifyRequest(BaseModel):
+    tg_id: int
+    code: str  # 6-значный код из приложения
+
+@app.post("/api/2fa/init")
+async def twofa_init(req: TwoFAInitRequest):
+    """
+    Генерирует секрет для Google Authenticator и сохраняет его пользователю.
+    Возвращает секрет и otpauth-ссылку (можно показать как QR или просто текстом).
+    """
+    secret = pyotp.random_base32()
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE users
+            SET ga_secret = $1,
+                twofa_enabled = FALSE
+            WHERE tg_id = $2
+            RETURNING id
+            """,
+            secret,
+            req.tg_id,
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    totp = pyotp.TOTP(secret)
+    otpauth_url = totp.provisioning_uri(
+        name=str(req.tg_id),   # можно подставить username
+        issuer_name="RoyalBet" # имя твоего проекта
+    )
+
+    return {
+        "secret": secret,
+        "otpauth_url": otpauth_url,
+    }
+    @app.post("/api/2fa/verify")
+async def twofa_verify(req: TwoFAVerifyRequest):
+    """
+    Проверяет код из Google Authenticator и, если ок, включает 2FA.
+    """
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT ga_secret FROM users WHERE tg_id = $1",
+            req.tg_id,
+        )
+
+        if not row or not row["ga_secret"]:
+            raise HTTPException(status_code=400, detail="2FA не инициализирована")
+
+        secret = row["ga_secret"]
+
+        # Реальная проверка TOTP
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(req.code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Неверный код")
+
+        await conn.execute(
+            "UPDATE users SET twofa_enabled = TRUE WHERE tg_id = $1",
+            req.tg_id,
+        )
+
+    return {"ok": True}
+
+class TwoFAStatusRequest(BaseModel):
+    tg_id: int
+
+
+@app.post("/api/2fa/status")
+async def twofa_status(req: TwoFAStatusRequest):
+    """
+    Возвращает, включена ли 2FA.
+    """
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT twofa_enabled FROM users WHERE tg_id = $1",
+            req.tg_id,
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"enabled": bool(row["twofa_enabled"])}
 
 
 
