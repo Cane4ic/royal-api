@@ -135,40 +135,54 @@ async def change_balance(req: BalanceChangeRequest):
 
 class PersonalDataRequest(BaseModel):
     tg_id: int
-    first_name: str | None = None
-    last_name: str | None = None
-    birth_date: str | None = None  # строка 'дд.мм.гггг' или ISO, как тебе удобнее
-    gender: str | None = None      # "male" / "female" / "" и т.п.
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    birth_date: Optional[str] = None  # будем принимать строку "дд.мм.гггг"
+    gender: Optional[str] = None      # 'male' / 'female' / что решишь     # "male" / "female" / "" и т.п.
 
 
 @app.post("/api/personal-data/save")
 async def save_personal_data(req: PersonalDataRequest):
     """
-    Сохраняет персональные данные пользователя.
+    Сохраняет персональные данные пользователя в таблицу users по tg_id.
+    birth_date ожидается в формате 'дд.мм.гггг'.
     """
-    if db_pool is None:
-        raise HTTPException(status_code=500, detail="DB pool not initialized")
+    # парсим дату, если пришла
+    birth_date_db = None
+    if req.birth_date:
+        try:
+            birth_date_db = datetime.strptime(req.birth_date, "%d.%m.%Y").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается дд.мм.гггг")
 
     async with db_pool.acquire() as conn:
-        # пример: сохраняем в таблицу user_profiles, связанную с users по tg_id
-        await conn.execute(
+        row = await conn.fetchrow(
             """
-            INSERT INTO user_profiles (tg_id, first_name, last_name, birth_date, gender)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (tg_id) DO UPDATE
-            SET first_name = EXCLUDED.first_name,
-                last_name = EXCLUDED.last_name,
-                birth_date = EXCLUDED.birth_date,
-                gender = EXCLUDED.gender
+            UPDATE users
+            SET
+                first_name = $1,
+                last_name  = $2,
+                birth_date = $3,
+                gender     = $4
+            WHERE tg_id = $5
+            RETURNING first_name, last_name, birth_date, gender
             """,
-            req.tg_id,
             req.first_name,
             req.last_name,
-            req.birth_date,
+            birth_date_db,
             req.gender,
+            req.tg_id,
         )
 
-    return {"status": "ok"}
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "first_name": row["first_name"],
+        "last_name": row["last_name"],
+        "birth_date": row["birth_date"].isoformat() if row["birth_date"] else None,
+        "gender": row["gender"],
+    }
 
 
 
