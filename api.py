@@ -54,6 +54,9 @@ async def on_shutdown():
 class BalanceRequest(BaseModel):
     tg_id: int
 
+class DepositAddressRequest(BaseModel):
+    tg_id: int
+
 
 @app.post("/api/balance")
 async def get_balance(req: BalanceRequest):
@@ -78,6 +81,29 @@ class BalanceChangeRequest(BaseModel):
     tg_id: int
     delta: float   # на сколько изменить баланс (+выигрыш, -ставка)
 
+@app.post("/api/deposit-address")
+async def get_deposit_address(req: DepositAddressRequest):
+    """
+    Возвращает депозит-адрес пользователя по его Telegram ID.
+    """
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT da.address
+            FROM deposit_addresses da
+            JOIN users u ON da.user_id = u.id
+            WHERE u.tg_id = $1
+            ORDER BY da.assigned_at DESC
+            LIMIT 1
+            """,
+            req.tg_id,
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Deposit address not found")
+
+    return {"address": row["address"]}
+
 
 @app.post("/api/change-balance")
 async def change_balance(req: BalanceChangeRequest):
@@ -100,4 +126,5 @@ async def change_balance(req: BalanceChangeRequest):
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"balance": float(row["balance_usdt"])}
+
 
