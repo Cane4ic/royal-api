@@ -221,18 +221,26 @@ async def get_personal_data(req: PersonalDataGetRequest):
         "gender": row["gender"],
     }
 
+import pyotp
+
 class TwoFAInitRequest(BaseModel):
     tg_id: int
+
 
 class TwoFAVerifyRequest(BaseModel):
     tg_id: int
     code: str  # 6-значный код из приложения
 
+
+class TwoFAStatusRequest(BaseModel):
+    tg_id: int
+
+
 @app.post("/api/2fa/init")
 async def twofa_init(req: TwoFAInitRequest):
     """
     Генерирует секрет для Google Authenticator и сохраняет его пользователю.
-    Возвращает секрет и otpauth-ссылку (можно показать как QR или просто текстом).
+    Возвращает секрет и otpauth-ссылку.
     """
     secret = pyotp.random_base32()
 
@@ -254,15 +262,17 @@ async def twofa_init(req: TwoFAInitRequest):
 
     totp = pyotp.TOTP(secret)
     otpauth_url = totp.provisioning_uri(
-        name=str(req.tg_id),   # можно подставить username
-        issuer_name="RoyalBet" # имя твоего проекта
+        name=str(req.tg_id),
+        issuer_name="RoyalBet"
     )
 
     return {
         "secret": secret,
         "otpauth_url": otpauth_url,
     }
-    @app.post("/api/2fa/verify")
+
+
+@app.post("/api/2fa/verify")
 async def twofa_verify(req: TwoFAVerifyRequest):
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -286,9 +296,6 @@ async def twofa_verify(req: TwoFAVerifyRequest):
 
     return {"ok": True}
 
-class TwoFAStatusRequest(BaseModel):
-    tg_id: int
-
 
 @app.post("/api/2fa/status")
 async def twofa_status(req: TwoFAStatusRequest):
@@ -305,6 +312,7 @@ async def twofa_status(req: TwoFAStatusRequest):
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"enabled": bool(row["twofa_enabled"])}
+
 
 
 
