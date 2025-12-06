@@ -2,4 +2,5 @@ fastapi
 uvicorn[standard]
 asyncpg
 python-dotenv
+pyotp
 httpx
