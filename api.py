@@ -189,6 +189,38 @@ async def save_personal_data(req: PersonalDataRequest):
         "gender": row["gender"],
     }
 
+class PersonalDataGetRequest(BaseModel):
+    tg_id: int
+
+
+@app.post("/api/personal-data/get")
+async def get_personal_data(req: PersonalDataGetRequest):
+    """
+    Возвращает персональные данные пользователя по tg_id.
+    """
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT first_name, last_name, birth_date, gender
+            FROM users
+            WHERE tg_id = $1
+            """,
+            req.tg_id,
+        )
+
+    if not row:
+        # Если юзер ещё не заполнял профиль — просто 404
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "first_name": row["first_name"],
+        "last_name": row["last_name"],
+        # birth_date в JSON будет "YYYY-MM-DD", что идеально для <input type="date">
+        "birth_date": row["birth_date"].isoformat() if row["birth_date"] else None,
+        "gender": row["gender"],
+    }
+
+
 
 
 
