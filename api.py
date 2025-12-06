@@ -142,7 +142,7 @@ class PersonalDataRequest(BaseModel):
 
 
 # делаем эндпоинт с тем же путём, что и на фронте: /api/profile
-@app.post("/api/profile-data/save")
+@app.post("/api/personal-data/save")
 async def save_personal_data(req: PersonalDataRequest):
     """
     Сохраняет персональные данные пользователя в таблицу users по tg_id.
@@ -188,6 +188,7 @@ async def save_personal_data(req: PersonalDataRequest):
         "birth_date": row["birth_date"].isoformat() if row["birth_date"] else None,
         "gender": row["gender"],
     }
+
 
 
 
