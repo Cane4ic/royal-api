@@ -137,28 +137,29 @@ class PersonalDataRequest(BaseModel):
     tg_id: int
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    birth_date: Optional[str] = None  # будем принимать строку "дд.мм.гггг"
-    gender: Optional[str] = None      # 'male' / 'female' / что решишь     # "male" / "female" / "" и т.п.
+    birth_date: Optional[str] = None  # формат YYYY-MM-DD из <input type="date">
+    gender: Optional[str] = None      # 'male' / 'female' / и т.п.
 
 
-@app.post("/api/personal-data/save")
+# делаем эндпоинт с тем же путём, что и на фронте: /api/profile
+@app.post("/api/profile-data/save")
 async def save_personal_data(req: PersonalDataRequest):
     """
     Сохраняет персональные данные пользователя в таблицу users по tg_id.
-    birth_date ожидается в формате 'дд.мм.гггг'.
+    birth_date ожидается в формате 'YYYY-MM-DD' (как отдаёт <input type="date">).
     """
-    # парсим дату, если пришла
+    # 1. Парсим дату, если пришла
     birth_date_db = None
-if req.birth_date:
-    try:
-        # формат из <input type="date">: 2025-12-06
-        birth_date_db = datetime.strptime(req.birth_date, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Неверный формат даты. Ожидается YYYY-MM-DD"
-        )
+    if req.birth_date:
+        try:
+            birth_date_db = datetime.strptime(req.birth_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Неверный формат даты. Ожидается YYYY-MM-DD"
+            )
 
+    # 2. Обновляем пользователя в БД
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -187,6 +188,7 @@ if req.birth_date:
         "birth_date": row["birth_date"].isoformat() if row["birth_date"] else None,
         "gender": row["gender"],
     }
+
 
 
 
