@@ -150,10 +150,14 @@ async def save_personal_data(req: PersonalDataRequest):
     # парсим дату, если пришла
     birth_date_db = None
     if req.birth_date:
-        try:
-            birth_date_db = datetime.strptime(req.birth_date, "%d.%m.%Y").date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается дд.мм.гггг")
+    try:
+        # формат из <input type="date">: 2025-12-06
+        birth_date_db = datetime.strptime(req.birth_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Неверный формат даты. Ожидается YYYY-MM-DD"
+        )
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -183,6 +187,7 @@ async def save_personal_data(req: PersonalDataRequest):
         "birth_date": row["birth_date"].isoformat() if row["birth_date"] else None,
         "gender": row["gender"],
     }
+
 
 
 
