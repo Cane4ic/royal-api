@@ -112,23 +112,39 @@ async def get_deposit_address(req: DepositAddressRequest):
 
 @app.post("/api/change-balance")
 async def change_balance(req: BalanceChangeRequest):
-    """
-    Изменяет баланс на delta и возвращает новый баланс.
-    """
     async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            UPDATE users
-            SET balance_usdt = GREATEST(0, balance_usdt + $1)
-            WHERE tg_id = $2
-            RETURNING balance_usdt
-            """,
-            req.delta,
-            req.tg_id,
-        )
+        async with conn.transaction():
+            # 1) найдём user_id
+            user_row = await conn.fetchrow(
+                "SELECT id FROM users WHERE tg_id = $1",
+                req.tg_id,
+            )
+            if not user_row:
+                raise HTTPException(status_code=404, detail="User not found")
 
-    if not row:
-        raise HTTPException(status_code=404, detail="User not found")
+            user_id = user_row["id"]
+
+            # 2) обновим баланс
+            row = await conn.fetchrow(
+                """
+                UPDATE users
+                SET balance_usdt = GREATEST(0, balance_usdt + $1)
+                WHERE id = $2
+                RETURNING balance_usdt
+                """,
+                req.delta,
+                user_id,
+            )
+
+            # 3) запишем операцию в историю
+            await conn.execute(
+                """
+                INSERT INTO operations (user_id, amount, currency, type, status)
+                VALUES ($1, $2, 'USDT', 'admin_change', 'done')
+                """,
+                user_id,
+                req.delta,
+            )
 
     return {"balance": float(row["balance_usdt"])}
 
@@ -312,6 +328,48 @@ async def twofa_status(req: TwoFAStatusRequest):
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"enabled": bool(row["twofa_enabled"])}
+
+class DepositHistoryRequest(BaseModel):
+    tg_id: int
+
+@app.post("/api/deposit-history")
+async def deposit_history(req: DepositHistoryRequest):
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT o.amount,
+                   o.currency,
+                   o.type,
+                   o.status,
+                   o.network,
+                   o.txid,
+                   o.created_at
+            FROM operations o
+            JOIN users u ON o.user_id = u.id
+            WHERE u.tg_id = $1
+            ORDER BY o.created_at DESC
+            LIMIT 100
+            """,
+            req.tg_id,
+        )
+
+    # фронт ждёт список объектов
+    return [
+        {
+            "amount": float(r["amount"]),
+            "currency": r["currency"],
+            "type": r["type"],
+            "status": r["status"],
+            "network_name": r["network"],
+            "txid": r["txid"],
+            "created_at": r["created_at"].isoformat(),
+            # флаги для определения "ручного" пополнения
+            "is_manual": (r["type"] == "admin_change"),
+            "from_admin": (r["type"] == "admin_change"),
+        }
+        for r in rows
+    ]
+
 
 
 
